@@ -90,7 +90,7 @@ export default function Team() {
                 borderRadius="xl"
                 overflow="hidden"
                 bg="white"
-                shadow="sm"
+                variant="outline"
             >
                 {isLoading ? (
                     <Center p={10}><Spinner color="blue.500" /></Center>
