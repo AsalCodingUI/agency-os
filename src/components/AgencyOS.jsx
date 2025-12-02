@@ -59,6 +59,31 @@ const AgencyOS = () => {
         navigate("/login")
     }
 
+    // --- AUTH & PROFILE ---
+    const { user, profile, setProfile } = useAuthStore()
+
+    React.useEffect(() => {
+        const fetchProfile = async () => {
+            if (user?.email) {
+                const { data, error } = await supabase
+                    .from('employees')
+                    .select('*')
+                    .eq('email', user.email)
+                    .single()
+
+                if (data) {
+                    setProfile(data)
+                }
+            }
+        }
+        fetchProfile()
+    }, [user, setProfile])
+
+    const isStakeholder = profile?.role === 'STAKEHOLDER'
+    const isProjectManager = profile?.job_title === 'PROJECT_MANAGER'
+    const canViewCalculator = isStakeholder || isProjectManager
+    const canViewTeamDB = isStakeholder
+
     // --- DATA FETCHING ---
     const { employees, isLoading: isLoadingEmployees, addEmployee, updateEmployee, deleteEmployee } = useEmployees()
 
@@ -294,11 +319,18 @@ const AgencyOS = () => {
 
                         {/* TABS LIST INSIDE HEADER */}
                         <Tabs.List borderBottomWidth="0">
-                            <Tabs.Trigger value="calculator" px={4} pb={3} _selected={{ color: "fg", borderColor: "fg" }}>
-                                <Text fontWeight="medium">Calculator</Text>
-                            </Tabs.Trigger>
-                            <Tabs.Trigger value="team" px={4} pb={3} _selected={{ color: "fg", borderColor: "fg" }}>
-                                <Text fontWeight="medium">Team Database</Text>
+                            {canViewCalculator && (
+                                <Tabs.Trigger value="calculator" px={4} pb={3} _selected={{ color: "fg", borderColor: "fg" }}>
+                                    <Text fontWeight="medium">Calculator</Text>
+                                </Tabs.Trigger>
+                            )}
+                            {canViewTeamDB && (
+                                <Tabs.Trigger value="team" px={4} pb={3} _selected={{ color: "fg", borderColor: "fg" }}>
+                                    <Text fontWeight="medium">Team Database</Text>
+                                </Tabs.Trigger>
+                            )}
+                            <Tabs.Trigger value="attendance" px={4} pb={3} _selected={{ color: "fg", borderColor: "fg" }}>
+                                <Text fontWeight="medium">Attendance</Text>
                             </Tabs.Trigger>
                         </Tabs.List>
                     </Container>
@@ -441,7 +473,7 @@ const AgencyOS = () => {
                                                 >
                                                     {employees.map(member => ( // Use 'employees' from hook
                                                         <option key={member.id} value={member.id}>
-                                                            {member.name} - {member.role} ({formatCurrency(member.hourly_rate)}/hr)
+                                                            {member.name} - {member.role} {isStakeholder && `(${formatCurrency(member.hourly_rate)}/hr)`}
                                                         </option>
                                                     ))}
                                                 </NativeSelectField>
@@ -463,7 +495,9 @@ const AgencyOS = () => {
                                                                 </Box>
                                                             </HStack>
                                                             <HStack>
-                                                                <Text fontWeight="bold" color="green.600">{formatCurrency(memberTotalCost)}</Text>
+                                                                <Text fontWeight="bold" color="green.600">
+                                                                    {isStakeholder ? formatCurrency(memberTotalCost) : '***'}
+                                                                </Text>
                                                                 <IconButton
                                                                     size="xs"
                                                                     variant="ghost"
@@ -626,6 +660,16 @@ const AgencyOS = () => {
                                         )}
                                     </Table.Body>
                                 </Table.Root>
+                            </Card.Body>
+                        </Card.Root>
+                    </Tabs.Content>
+
+                    {/* TAB 3: ATTENDANCE */}
+                    <Tabs.Content value="attendance">
+                        <Card.Root>
+                            <Card.Body>
+                                <Heading size="md" mb={4}>Attendance & Leave</Heading>
+                                <Text color="gray.500">Attendance module coming soon...</Text>
                             </Card.Body>
                         </Card.Root>
                     </Tabs.Content>
