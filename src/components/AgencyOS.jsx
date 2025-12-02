@@ -40,15 +40,9 @@ import { Trash2, Plus, Users, Calculator, DollarSign, Briefcase, Calendar, Edit2
 import { useNavigate } from "react-router-dom"
 import { supabase } from "../lib/supabase"
 import { useAuthStore } from "../store/useAuthStore"
+import { useEmployees } from "../hooks/useEmployees"
 
-// Dummy Data
-const INITIAL_TEAM = [
-    { id: '1', name: 'Sarah Designer', role: 'UI/UX Designer', rate: 45, avatar: 'https://i.pravatar.cc/150?u=1' },
-    { id: '2', name: 'Mike Dev', role: 'Frontend Dev', rate: 60, avatar: 'https://i.pravatar.cc/150?u=2' },
-    { id: '3', name: 'Alex Backend', role: 'Backend Dev', rate: 65, avatar: 'https://i.pravatar.cc/150?u=3' },
-    { id: '4', name: 'Jessica PM', role: 'Project Manager', rate: 55, avatar: 'https://i.pravatar.cc/150?u=4' },
-];
-
+// Dummy Data - INITIAL_TEAM removed as data now comes from useEmployees
 const INITIAL_PHASES = [
     { id: '1', name: 'Discovery & Strategy', days: 5, buffer: 2 },
     { id: '2', name: 'Design System', days: 10, buffer: 3 },
@@ -64,6 +58,10 @@ const AgencyOS = () => {
         clearAuth()
         navigate("/login")
     }
+
+    // --- DATA FETCHING ---
+    const { employees, isLoading: isLoadingEmployees, addEmployee, updateEmployee, deleteEmployee } = useEmployees()
+
     // --- STATE ---
 
     // 1. Project Context
@@ -77,8 +75,8 @@ const AgencyOS = () => {
     // 2. Timeline Engine
     const [phases, setPhases] = useState(INITIAL_PHASES);
 
-    // 3. Team Database
-    const [teamDatabase, setTeamDatabase] = useState(INITIAL_TEAM);
+    // 3. Team Database State
+    // teamDatabase state removed, using 'employees' from useEmployees hook
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingMember, setEditingMember] = useState(null); // null = adding new, object = editing
 
@@ -93,9 +91,10 @@ const AgencyOS = () => {
     }, [phases]);
 
     const squadCost = useMemo(() => {
+        // Calculations
         return squad.reduce((acc, member) => {
-            // Cost = (Rate * Hours/Day * Total Days * Allocation%)
-            const memberCost = member.rate * projectContext.hoursPerDay * totalDays * (member.allocation / 100);
+            // Cost = (Hourly Rate * Hours/Day * Total Days * Allocation%)
+            const memberCost = member.hourly_rate * projectContext.hoursPerDay * totalDays * (member.allocation / 100);
             return acc + memberCost;
         }, 0);
     }, [squad, totalDays, projectContext.hoursPerDay]);
@@ -128,7 +127,7 @@ const AgencyOS = () => {
 
     // Squad Handlers
     const addSquadMember = () => {
-        const member = teamDatabase.find(m => m.id === selectedMemberId);
+        const member = employees.find(m => m.id === selectedMemberId); // Use 'employees' from hook
         if (member && !squad.find(s => s.id === member.id)) {
             setSquad([...squad, { ...member, allocation: 100 }]); // Default 100% allocation
         }
@@ -144,44 +143,68 @@ const AgencyOS = () => {
     };
 
     // Team Database Handlers
+    const handleAddMember = async () => {
+        if (editingMember.name && editingMember.role && editingMember.hourly_rate) {
+            try {
+                await addEmployee.mutateAsync({
+                    name: editingMember.name,
+                    role: editingMember.role,
+                    hourly_rate: Number(editingMember.hourly_rate),
+                    email: editingMember.email || "", // Optional
+                    status: "AVAILABLE"
+                })
+                setIsDialogOpen(false);
+                setEditingMember(null);
+            } catch (error) {
+                console.error("Failed to add member:", error)
+                // You might want to show a toast here
+            }
+        }
+    };
+
+    const handleUpdateMember = async () => {
+        if (editingMember.id && editingMember.name && editingMember.role && editingMember.hourly_rate) {
+            try {
+                await updateEmployee.mutateAsync({
+                    id: editingMember.id,
+                    name: editingMember.name,
+                    role: editingMember.role,
+                    hourly_rate: Number(editingMember.hourly_rate),
+                    email: editingMember.email || ""
+                })
+                setIsDialogOpen(false);
+                setEditingMember(null);
+            } catch (error) {
+                console.error("Failed to update member:", error)
+            }
+        }
+    };
+
+    const removeTeamMember = async (id) => {
+        if (confirm("Are you sure you want to remove this member?")) {
+            try {
+                await deleteEmployee.mutateAsync(id)
+                // Also remove from squad if present
+                setSquad(squad.filter(s => s.id !== id));
+            } catch (error) {
+                console.error("Failed to delete member:", error)
+            }
+        }
+    };
+
     const openAddMemberDialog = () => {
-        setEditingMember({
-            id: '',
-            name: '',
-            role: '',
-            rate: 0,
-            avatar: `https://i.pravatar.cc/150?u=${Date.now()}`
-        });
+        setEditingMember({ name: '', role: '', hourly_rate: 0, email: '' });
         setIsDialogOpen(true);
     };
 
     const openEditMemberDialog = (member) => {
-        setEditingMember({ ...member });
+        setEditingMember({ ...member }); // member already has hourly_rate
         setIsDialogOpen(true);
-    };
-
-    const saveMember = () => {
-        if (editingMember.id) {
-            // Update existing
-            setTeamDatabase(teamDatabase.map(t => t.id === editingMember.id ? editingMember : t));
-            // Update squad if present
-            setSquad(squad.map(s => s.id === editingMember.id ? { ...s, ...editingMember } : s));
-        } else {
-            // Add new
-            const newMember = { ...editingMember, id: Date.now().toString() };
-            setTeamDatabase([...teamDatabase, newMember]);
-        }
-        setIsDialogOpen(false);
-    };
-
-    const removeTeamMember = (id) => {
-        setTeamDatabase(teamDatabase.filter(t => t.id !== id));
-        setSquad(squad.filter(s => s.id !== id));
     };
 
     // --- RENDER HELPERS ---
     const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+        return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
     };
 
     return (
@@ -222,7 +245,7 @@ const AgencyOS = () => {
                                                         <rect x="14.7061" y="20.2911" width="7.35001" height="16.1545" transform="rotate(-60 14.7061 20.2911)" fill="currentColor" />
                                                     </g>
                                                 </g>
-                                                <path d="M132.269 29.1645V27.3608C130.851 29.0034 129.112 29.551 126.986 29.551C123.379 29.551 120.867 27.7473 120.867 24.4299C120.867 21.4346 122.864 20.0497 127.47 19.2445L132.14 18.4393V17.6663C132.14 16.4102 131.496 15.5406 129.402 15.5406C127.631 15.5406 126.407 16.3458 126.374 17.8273H121.672C121.737 13.898 125.086 12.0299 129.37 12.0299C134.33 12.0299 136.745 13.9946 136.745 17.1187V29.1645H132.269ZM125.666 24.2689C125.666 25.4606 126.536 26.2336 128.243 26.2336C130.272 26.2336 132.14 25.2351 132.14 22.7551V21.4024L128.404 22.1432C126.6 22.4974 125.666 22.9162 125.666 24.2689Z" fill="currentColor" />
+                                                <path d="M132.269 29.1645V27.3608C130.851 29.0034 129.112 29.551 126.986 29.551C123.379 29.551 120.867 27.7473 120.867 24.4299C120.867 21.4346 122.864 20.0497 127.47 19.2445L132.14 18.4393V17.6663C132.14 16.4102 131.496 15.5406 129.402 15.5406C127.631 15.5406 126.407 16.3458 126.374 17.8273H121.672C121.737 13.898 125.086 12.0299 129.37 12.0299C134.33 12.0299 136.745 13.9946 136.745 17.1187V29.1645H132.269ZM125.666 24.2689C125.666 25.4606 126.536 26.2336 128.243 26.2336C130.272 26.2336 132.140 25.2351 132.140 22.7551V21.4024L128.404 22.1432C126.600 22.4974 125.666 22.9162 125.666 24.2689Z" fill="currentColor" />
                                                 <path d="M104.098 35.6061V31.8378H106.868C108.575 31.8378 108.929 31.3869 109.477 29.8087L109.606 29.4544L103.261 12.4165H108.35L112.15 24.8809L115.854 12.4165H120.911L114.276 30.6139C113.213 33.577 111.764 35.6061 108.189 35.6061H104.098Z" fill="currentColor" />
                                                 <path d="M94.4571 7.26318H99.1916V12.4164H103.314V15.9271H99.1916V24.1723C99.1916 25.1707 99.5459 25.6539 100.738 25.6539H103.314V29.1645H99.4493C96.6794 29.1645 94.4571 28.4237 94.4571 24.6554V15.9271H91.5906V12.4164H94.4571V7.26318Z" fill="currentColor" />
                                                 <path d="M82.6702 29.551C77.2593 29.551 74.1674 25.7826 74.1674 20.7904C74.1674 15.7982 77.2593 12.0299 82.6702 12.0299C88.0811 12.0299 91.1731 15.605 91.1731 21.2736V22.2398H78.7731C79.1596 24.5588 80.5123 25.9759 82.6702 25.9759C84.5383 25.9759 85.6978 25.2673 86.3419 24.0112H90.8832C89.8204 27.3286 86.8894 29.551 82.6702 29.551ZM78.8375 19.0834H86.5352C86.0843 16.9255 84.7315 15.605 82.6702 15.605C80.6089 15.605 79.2562 16.9255 78.8375 19.0834Z" fill="currentColor" />
@@ -302,19 +325,23 @@ const AgencyOS = () => {
                                             <Box>
                                                 <Text fontSize="sm" fontWeight="medium" mb={1}>Project Revenue (USD)</Text>
                                                 <NumberInputRoot
-                                                    value={projectContext.revenue}
-                                                    onValueChange={(e) => setProjectContext(prev => ({ ...prev, revenue: Number(e.value) }))}
+                                                    value={String(projectContext.revenue)}
+                                                    onValueChange={(e) => setProjectContext(prev => ({ ...prev, revenue: isNaN(e.valueAsNumber) ? 0 : e.valueAsNumber }))}
+                                                    formatOptions={{ style: "currency", currency: "USD", currencyDisplay: "code", currencySign: "accounting" }}
+                                                    locale="en-US"
                                                 >
-                                                    <NumberInputField />
+                                                    <NumberInputField placeholder="0" />
                                                 </NumberInputRoot>
                                             </Box>
                                             <Box>
                                                 <Text fontSize="sm" fontWeight="medium" mb={1}>Exchange Rate (IDR)</Text>
                                                 <NumberInputRoot
-                                                    value={projectContext.exchangeRate}
-                                                    onValueChange={(e) => setProjectContext(prev => ({ ...prev, exchangeRate: Number(e.value) }))}
+                                                    value={String(projectContext.exchangeRate)}
+                                                    onValueChange={(e) => setProjectContext(prev => ({ ...prev, exchangeRate: isNaN(e.valueAsNumber) ? 0 : e.valueAsNumber }))}
+                                                    formatOptions={{ style: "currency", currency: "IDR", currencyDisplay: "code", currencySign: "accounting" }}
+                                                    locale="id-ID"
                                                 >
-                                                    <NumberInputField />
+                                                    <NumberInputField placeholder="0" />
                                                 </NumberInputRoot>
                                             </Box>
                                             <Box>
@@ -412,9 +439,9 @@ const AgencyOS = () => {
                                                     value={selectedMemberId}
                                                     onChange={(e) => setSelectedMemberId(e.target.value)}
                                                 >
-                                                    {teamDatabase.map(member => (
+                                                    {employees.map(member => ( // Use 'employees' from hook
                                                         <option key={member.id} value={member.id}>
-                                                            {member.name} - {member.role} (${member.rate}/hr)
+                                                            {member.name} - {member.role} ({formatCurrency(member.hourly_rate)}/hr)
                                                         </option>
                                                     ))}
                                                 </NativeSelectField>
@@ -424,7 +451,7 @@ const AgencyOS = () => {
 
                                         <Stack gap={6} separator={<Separator />}>
                                             {squad.map((member) => {
-                                                const memberTotalCost = member.rate * projectContext.hoursPerDay * totalDays * (member.allocation / 100);
+                                                const memberTotalCost = member.hourly_rate * projectContext.hoursPerDay * totalDays * (member.allocation / 100);
                                                 return (
                                                     <Box key={member.id}>
                                                         <HStack justify="space-between" mb={2}>
@@ -540,49 +567,63 @@ const AgencyOS = () => {
                                     <Table.Header>
                                         <Table.Row>
                                             <Table.ColumnHeader>Member</Table.ColumnHeader>
+                                            <Table.ColumnHeader>Email</Table.ColumnHeader>
                                             <Table.ColumnHeader>Role</Table.ColumnHeader>
-                                            <Table.ColumnHeader>Rate / Hour</Table.ColumnHeader>
+                                            <Table.ColumnHeader>Rate / Hour (IDR)</Table.ColumnHeader>
                                             <Table.ColumnHeader textAlign="end">Actions</Table.ColumnHeader>
                                         </Table.Row>
                                     </Table.Header>
                                     <Table.Body>
-                                        {teamDatabase.map((member) => (
-                                            <Table.Row key={member.id} _even={{ bg: { base: "gray.50", _dark: "whiteAlpha.50" } }}>
-                                                <Table.Cell>
-                                                    <HStack>
-                                                        <Avatar size="sm" src={member.avatar} name={member.name} />
-                                                        <Text fontWeight="medium">{member.name}</Text>
-                                                    </HStack>
-                                                </Table.Cell>
-                                                <Table.Cell>
-                                                    <Text>{member.role}</Text>
-                                                </Table.Cell>
-                                                <Table.Cell>
-                                                    <Text>${member.rate}</Text>
-                                                </Table.Cell>
-                                                <Table.Cell textAlign="end">
-                                                    <HStack justify="end">
-                                                        <IconButton
-                                                            aria-label="Edit member"
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={() => openEditMemberDialog(member)}
-                                                        >
-                                                            <Edit2 size={16} />
-                                                        </IconButton>
-                                                        <IconButton
-                                                            aria-label="Delete member"
-                                                            colorPalette="red"
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={() => removeTeamMember(member.id)}
-                                                        >
-                                                            <Trash2 size={16} />
-                                                        </IconButton>
-                                                    </HStack>
-                                                </Table.Cell>
+                                        {isLoadingEmployees ? (
+                                            <Table.Row>
+                                                <Table.Cell colSpan={4} textAlign="center" py={4}>Loading team data...</Table.Cell>
                                             </Table.Row>
-                                        ))}
+                                        ) : employees.length === 0 ? (
+                                            <Table.Row>
+                                                <Table.Cell colSpan={4} textAlign="center" py={4}>No team members found.</Table.Cell>
+                                            </Table.Row>
+                                        ) : (
+                                            employees.map((member) => (
+                                                <Table.Row key={member.id} _even={{ bg: { base: "gray.50", _dark: "whiteAlpha.50" } }}>
+                                                    <Table.Cell>
+                                                        <HStack>
+                                                            <Avatar size="sm" name={member.name} />
+                                                            <Text fontWeight="medium">{member.name}</Text>
+                                                        </HStack>
+                                                    </Table.Cell>
+                                                    <Table.Cell>
+                                                        <Text>{member.email || "-"}</Text>
+                                                    </Table.Cell>
+                                                    <Table.Cell>
+                                                        <Text>{member.role}</Text>
+                                                    </Table.Cell>
+                                                    <Table.Cell>
+                                                        <Text>{formatCurrency(member.hourly_rate)}/hr</Text>
+                                                    </Table.Cell>
+                                                    <Table.Cell textAlign="end">
+                                                        <HStack justify="end">
+                                                            <IconButton
+                                                                aria-label="Edit member"
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => openEditMemberDialog(member)}
+                                                            >
+                                                                <Edit2 size={16} />
+                                                            </IconButton>
+                                                            <IconButton
+                                                                aria-label="Delete member"
+                                                                colorPalette="red"
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => removeTeamMember(member.id)}
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </IconButton>
+                                                        </HStack>
+                                                    </Table.Cell>
+                                                </Table.Row>
+                                            ))
+                                        )}
                                     </Table.Body>
                                 </Table.Root>
                             </Card.Body>
@@ -605,6 +646,13 @@ const AgencyOS = () => {
                                         />
                                     </Box>
                                     <Box>
+                                        <Text fontSize="sm" fontWeight="medium" mb={1}>Email</Text>
+                                        <Input
+                                            value={editingMember?.email || ''}
+                                            onChange={(e) => setEditingMember({ ...editingMember, email: e.target.value })}
+                                        />
+                                    </Box>
+                                    <Box>
                                         <Text fontSize="sm" fontWeight="medium" mb={1}>Role</Text>
                                         <Input
                                             value={editingMember?.role || ''}
@@ -612,12 +660,14 @@ const AgencyOS = () => {
                                         />
                                     </Box>
                                     <Box>
-                                        <Text fontSize="sm" fontWeight="medium" mb={1}>Rate per Hour ($)</Text>
+                                        <Text fontSize="sm" fontWeight="medium" mb={1}>Hourly Rate (IDR)</Text>
                                         <NumberInputRoot
-                                            value={editingMember?.rate || 0}
-                                            onValueChange={(e) => setEditingMember({ ...editingMember, rate: Number(e.value) })}
+                                            value={String(editingMember?.hourly_rate || 0)}
+                                            onValueChange={(e) => setEditingMember({ ...editingMember, hourly_rate: isNaN(e.valueAsNumber) ? 0 : e.valueAsNumber })}
+                                            formatOptions={{ style: "currency", currency: "IDR", currencyDisplay: "code", currencySign: "accounting" }}
+                                            locale="id-ID"
                                         >
-                                            <NumberInputField />
+                                            <NumberInputField placeholder="0" />
                                         </NumberInputRoot>
                                     </Box>
                                 </Stack>
@@ -626,7 +676,7 @@ const AgencyOS = () => {
                                 <DialogActionTrigger asChild>
                                     <Button variant="outline">Cancel</Button>
                                 </DialogActionTrigger>
-                                <Button onClick={saveMember}>Save</Button>
+                                <Button onClick={() => editingMember?.id ? handleUpdateMember() : handleAddMember()}>Save</Button>
                             </DialogFooter>
                             <DialogCloseTrigger />
                         </DialogContent>
